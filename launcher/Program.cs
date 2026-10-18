@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Drawing;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Windows.Forms;
 
@@ -27,6 +28,9 @@ internal sealed class LauncherForm : Form
     private readonly Label status = new();
     private readonly Label saveStatus = new();
     private readonly Label gameDetails = new();
+    private readonly Label fingerprintStatus = new();
+    private readonly Button fingerprintButton = new();
+    private string? executablePath;
     private readonly CheckBox jumpPreference = new();
     private readonly CheckBox hitboxPreference = new();
     private readonly System.Windows.Forms.Timer timer = new() { Interval = 2000 };
@@ -37,8 +41,8 @@ internal sealed class LauncherForm : Form
     public LauncherForm()
     {
         Text = "Smart Jump Launcher — Configuration Preview";
-        ClientSize = new Size(520, 390);
-        MinimumSize = new Size(520, 390);
+        ClientSize = new Size(520, 455);
+        MinimumSize = new Size(520, 455);
         StartPosition = FormStartPosition.CenterScreen;
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
@@ -108,6 +112,17 @@ internal sealed class LauncherForm : Form
             Location = new Point(20, 323)
         });
 
+        fingerprintButton.Text = "Identify game build";
+        fingerprintButton.Location = new Point(20, 366);
+        fingerprintButton.Size = new Size(150, 32);
+        fingerprintButton.Click += async (_, _) => await IdentifyBuildAsync();
+        Controls.Add(fingerprintButton);
+        fingerprintStatus.Text = "Read-only SHA-256 check; no game files are changed.";
+        fingerprintStatus.AutoSize = true;
+        fingerprintStatus.Location = new Point(20, 408);
+        fingerprintStatus.Font = new Font("Segoe UI", 8);
+        Controls.Add(fingerprintStatus);
+
         LoadSettings();
         timer.Tick += (_, _) => UpdateStatus();
         timer.Start();
@@ -167,13 +182,48 @@ internal sealed class LauncherForm : Form
             status.Text = running ? "Geometry Dash: RUNNING" : "Geometry Dash: NOT DETECTED";
             status.ForeColor = running ? Color.DarkGreen : Color.DarkOrange;
             gameDetails.Text = running ? GetExecutableDetails(process!) : "Executable details: waiting for game";
+            executablePath = running ? TryGetExecutablePath(process!) : null;
         }
         catch (Exception)
         {
             status.Text = "Geometry Dash: Unable to check process";
             status.ForeColor = Color.DarkRed;
             gameDetails.Text = "Executable details unavailable";
+            executablePath = null;
         }
+    }
+
+    private static string? TryGetExecutablePath(Process process)
+    {
+        try { return process.MainModule?.FileName; }
+        catch { return null; }
+    }
+
+    private async Task IdentifyBuildAsync()
+    {
+        string? path = executablePath;
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            fingerprintStatus.Text = "Start Geometry Dash first, then try again.";
+            return;
+        }
+        fingerprintButton.Enabled = false;
+        fingerprintStatus.Text = "Calculating executable fingerprint...";
+        try
+        {
+            string hash = await Task.Run(() =>
+            {
+                using var stream = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                return Convert.ToHexString(SHA256.HashData(stream));
+            });
+            Clipboard.SetText(hash);
+            fingerprintStatus.Text = $"SHA-256: {hash[..20]}... (full hash copied to clipboard)";
+        }
+        catch (Exception ex)
+        {
+            fingerprintStatus.Text = "Could not identify build: " + ex.Message;
+        }
+        finally { fingerprintButton.Enabled = true; }
     }
 
     private static string GetExecutableDetails(Process process)
