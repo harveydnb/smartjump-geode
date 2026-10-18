@@ -19,3 +19,9 @@ Examples of code pointers from those tables (all **RVAs**, not fixed runtime add
 **Limitations:** C++ classes may have multiple vtables due to inheritance. A vtable entry does not identify a jump or collision routine by itself; many entries are shared runtime thunks. No hooks or patches have been validated. These offsets are independently extracted from the uploaded binary, **not from the 2.1 gd-addresses repository**.
 
 Next: analyze disassembly and call sites for the candidate code functions; validate the calling conventions, timing semantics, and object-type checks before attempting a native gameplay hook.
+
+## Disassembly check: first class-specific entries
+
+Using `objdump -d -M intel` on the exact PE64 file, the first class-specific entries were examined. For `PlayerObject`, RVA `0x385B30` saves `this` from RCX, calls RVA `0x3864A0`, tests bit 0 of EDX, and conditionally calls RVA `0x4D07AC` with allocation size `0xC48`. This is consistent with an MSVC scalar deleting destructor, **not a jump handler**. Thus treating the first class-specific vtable slot as a gameplay hook would be incorrect.
+
+This is a verified negative result. Next work should trace non-destructor entries and cross-references from input and collision call sites; no safe patch address has been established.
