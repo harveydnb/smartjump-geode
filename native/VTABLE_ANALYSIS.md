@@ -47,3 +47,16 @@ The common entries near RVA `0x4CFE85` are **not ordinary player-function redire
 Disassembly of RVA `0x39D3A0` (previously examined as a callee from `0x388D80`) shows two virtual calls on objects referenced from `this+0x740` and `this+0x760`, and copies three-byte values into `this+0x8A0/+0x8A8` subobjects at offset `0x2F4`. Nearby code at RVA `0x39D430` handles these three-byte values and writes fields `this+0x97A..0x97F`. This strengthens the assessment that the `0x388D80` path is visual/color-state interpolation, **not verified jumping**.
 
 No safe jump-input or collision hook has yet been established. All observations derive from the uploaded x64 executable, not old 2.1 offsets.
+
+## Directly verified PlayerObject vtable overrides
+
+Reading the uploaded executable's `.rdata` and disassembling the pointed-to code yields these zero-indexed slots of the `PlayerObject` vtable at RVA `0x5C8270`:
+
+| Slot | PlayerObject entry RVA | GameObject entry RVA | Result |
+|---:|---:|---:|---|
+| 15 | `0x3A3910` | `0x198250` | Five-byte `E9` thunk to `0x198250` |
+| 17 | `0x3A3920` | `0x198330` | Five-byte `E9` thunk to `0x198330` |
+| 20 | `0x3A3930` | `0x198420` | Five-byte `E9` thunk to `0x198420` |
+| 23 | `0x39C640` | `0x197B60` | Substantial distinct function, begins by writing word `0x0101` to `this+0x368`, then calls `0x197B60` |
+
+The first three apparent overrides **collapse to exactly the same implementation** as `GameObject` when direct jumps are resolved. They must be excluded from player-specific hook candidates. Slot 23, `0x39C640`, is a genuine extended override and warrants further semantic analysis. Its initial operations and virtual calls on `this+0x758` do **not** establish that it handles jump input. No hook has been validated or shipped.
