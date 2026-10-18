@@ -39,3 +39,11 @@ Unlike the deleting destructor in slot 1, this function has a substantial stack 
 Extended disassembly of RVA `0x388D80` shows it compares a double at `this+0x808` with values at `this+0xAA0`, `this+0x810`, and `this+0x814`; computes an interpolation fraction (`divsd`), clamps with `minss`, and interpolates byte/word-sized fields around `this+0x97A`. It also calls a virtual method on the subobject at `this+0x140` and RVA `0x39D3A0`. These operations are **more consistent with time-based interpolation/animation state than with a jump-input handler**. The earlier physics-update hypothesis is therefore weakened and must not be used as a hook without additional evidence.
 
 **Status:** The exact-game executable has been inspected directly, but no verified input or collision hook has been located. No third-party 2.1 offsets used.
+
+## Confirmed import-thunk classification (direct disassembly)
+
+The common entries near RVA `0x4CFE85` are **not ordinary player-function redirectors**. On the uploaded executable, `0x4CFE85` disassembles as `FF 25 2D 6F 04 00`, an x86-64 `jmp qword ptr [rip+0x46F2D]`, targeting an import address table cell at RVA `0x516DB8`. Nearby vtable entries `0x4CFE7F`, `0x4CFE79`, `0x4CFE73` and others have the same import-thunk form. These shared slots are **external imported functions**, not candidate game-specific jump hooks. The analysis classifier was corrected to detect the `FF 25` form in addition to `E9` relative jumps.
+
+Disassembly of RVA `0x39D3A0` (previously examined as a callee from `0x388D80`) shows two virtual calls on objects referenced from `this+0x740` and `this+0x760`, and copies three-byte values into `this+0x8A0/+0x8A8` subobjects at offset `0x2F4`. Nearby code at RVA `0x39D430` handles these three-byte values and writes fields `this+0x97A..0x97F`. This strengthens the assessment that the `0x388D80` path is visual/color-state interpolation, **not verified jumping**.
+
+No safe jump-input or collision hook has yet been established. All observations derive from the uploaded x64 executable, not old 2.1 offsets.
