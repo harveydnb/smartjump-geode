@@ -165,14 +165,43 @@ DWORD WINAPI installInputHooks(LPVOID) {
     }
 }
 
+// A 14-byte FF 25 indirect jump is a common existing x64 detour.
+// MinHook can attempt to chain through it; never accept arbitrary mismatches.
+bool existingDetourAt(HMODULE exe, uintptr_t rva) noexcept {
+    if (!exe) return false;
+    auto* p = reinterpret_cast<const unsigned char*>(
+        reinterpret_cast<uintptr_t>(exe) + rva);
+    MEMORY_BASIC_INFORMATION mbi{};
+    if (VirtualQuery(p, &mbi, sizeof(mbi)) != sizeof(mbi) ||
+        mbi.State != MEM_COMMIT || (mbi.Protect & (PAGE_GUARD | PAGE_NOACCESS)) ||
+        reinterpret_cast<uintptr_t>(p) + 14 >
+            reinterpret_cast<uintptr_t>(mbi.BaseAddress) + mbi.RegionSize)
+        return false;
+    static constexpr unsigned char prefix[] = {0xFF, 0x25, 0, 0, 0, 0};
+    if (memcmp(p, prefix, sizeof(prefix)) != 0) return false;
+    uintptr_t destination = 0;
+    memcpy(&destination, p + 6, sizeof(destination));
+    MEMORY_BASIC_INFORMATION target{};
+    if (VirtualQuery(reinterpret_cast<const void*>(destination), &target,
+                     sizeof(target)) != sizeof(target) || target.State != MEM_COMMIT)
+        return false;
+    DWORD protection = target.Protect & 0xFF;
+    return protection == PAGE_EXECUTE || protection == PAGE_EXECUTE_READ ||
+           protection == PAGE_EXECUTE_READWRITE || protection == PAGE_EXECUTE_WRITECOPY;
+}
+
 DWORD installInputHooksImpl() {
 #if defined(_M_X64)
     HMODULE exe = GetModuleHandleW(nullptr);
     // Distinct return codes identify the mismatched entry point.
-    if (!matches(exe, kPushButtonRva, kPushButtonBytes)) return 11;
-    if (!matches(exe, kReleaseButtonRva, kReleaseButtonBytes)) return 12;
-    if (!matches(exe, kUpdateJumpRva, kUpdateJumpBytes)) return 13;
-    if (!matches(exe, kPostCollisionRva, kPostCollisionBytes)) return 14;
+    if (!matches(exe, kPushButtonRva, kPushButtonBytes) &&
+        !existingDetourAt(exe, kPushButtonRva)) return 11;
+    if (!matches(exe, kReleaseButtonRva, kReleaseButtonBytes) &&
+        !existingDetourAt(exe, kReleaseButtonRva)) return 12;
+    if (!matches(exe, kUpdateJumpRva, kUpdateJumpBytes) &&
+        !existingDetourAt(exe, kUpdateJumpRva)) return 13;
+    if (!matches(exe, kPostCollisionRva, kPostCollisionBytes) &&
+        !existingDetourAt(exe, kPostCollisionRva)) return 14;
 
     if (MH_Initialize() != MH_OK) return 2;
     auto* base = reinterpret_cast<unsigned char*>(exe);
