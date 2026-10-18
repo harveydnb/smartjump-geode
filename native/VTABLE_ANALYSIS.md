@@ -33,3 +33,9 @@ Validated directly with `objdump -d -M intel --start-address=0x140388d80 --stop-
 Unlike the deleting destructor in slot 1, this function has a substantial stack frame (`sub rsp, 0x110`), preserves floating-point registers, receives a float-like argument in XMM1 (`movaps xmm8, xmm1` and `cvtss2sd xmm14, xmm8`), multiplies it by a constant (`mulss xmm8, xmm6`), and reads a double from `[rcx+0x808]`. These observations make it a **plausible per-frame player update / physics candidate**, not proof of a jump-input or collision handler. The class and vtable slot are independently verified from the uploaded executable; no old-version offsets were used.
 
 **Still needed:** trace callers and downstream calls, determine exact signature and effect, and establish testable invariants before writing any hook. Do not patch this RVA on the strength of these observations alone.
+
+## Correction after inspecting more instructions (2026-10-18)
+
+Extended disassembly of RVA `0x388D80` shows it compares a double at `this+0x808` with values at `this+0xAA0`, `this+0x810`, and `this+0x814`; computes an interpolation fraction (`divsd`), clamps with `minss`, and interpolates byte/word-sized fields around `this+0x97A`. It also calls a virtual method on the subobject at `this+0x140` and RVA `0x39D3A0`. These operations are **more consistent with time-based interpolation/animation state than with a jump-input handler**. The earlier physics-update hypothesis is therefore weakened and must not be used as a hook without additional evidence.
+
+**Status:** The exact-game executable has been inspected directly, but no verified input or collision hook has been located. No third-party 2.1 offsets used.
