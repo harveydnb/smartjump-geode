@@ -3,6 +3,8 @@
 #include <cstring>
 #include <atomic>
 #include <cstdio>
+#include <mutex>
+#include <unordered_map>
 #include <MinHook.h>
 
 // Standalone Windows x64 DLL; no Geode runtime dependency.
@@ -10,23 +12,64 @@
 // This build installs pass-through input hooks only; no early-click correction yet.
 namespace {
 using ButtonFn = void(__fastcall*)(void*, int);
+using UpdateFn = void(__fastcall*)(void*, float);
+std::atomic<bool> gTapExtensionEnabled{false};
+std::atomic<uint64_t> gExtendedTaps{0};
+std::mutex gPendingMutex;
+struct PendingRelease { int button; ULONGLONG deadline; };
+std::unordered_map<void*, PendingRelease> gPending;
+UpdateFn gOriginalUpdate = nullptr;
 std::atomic<bool> gInputHooksActive{false};
 std::atomic<uint64_t> gPressCount{0};
 std::atomic<uint64_t> gReleaseCount{0};
 ButtonFn gOriginalPush = nullptr;
 ButtonFn gOriginalRelease = nullptr;
 
+void __fastcall onUpdate(void* player, float dt) {
+    bool flush = false;
+    int button = 0;
+    {
+        std::lock_guard<std::mutex> lock(gPendingMutex);
+        auto it = gPending.find(player);
+        if (it != gPending.end() && GetTickCount64() >= it->second.deadline) {
+            button = it->second.button;
+            gPending.erase(it);
+            flush = true;
+        }
+    }
+    if (flush && gOriginalRelease) gOriginalRelease(player, button);
+    if (gOriginalUpdate) gOriginalUpdate(player, dt);
+}
 void __fastcall onPush(void* player, int button) {
+    bool flush = false;
+    int previousButton = 0;
+    {
+        std::lock_guard<std::mutex> lock(gPendingMutex);
+        auto it = gPending.find(player);
+        if (it != gPending.end()) {
+            previousButton = it->second.button;
+            gPending.erase(it);
+            flush = true;
+        }
+    }
+    if (flush && gOriginalRelease) gOriginalRelease(player, previousButton);
     gPressCount.fetch_add(1, std::memory_order_relaxed);
     if (gOriginalPush) gOriginalPush(player, button);
 }
 void __fastcall onRelease(void* player, int button) {
     gReleaseCount.fetch_add(1, std::memory_order_relaxed);
-    if (gOriginalRelease) gOriginalRelease(player, button);
+    if (gTapExtensionEnabled.load(std::memory_order_acquire)) {
+        std::lock_guard<std::mutex> lock(gPendingMutex);
+        gPending[player] = {button, GetTickCount64() + 45};
+        gExtendedTaps.fetch_add(1, std::memory_order_relaxed);
+    } else if (gOriginalRelease) {
+        gOriginalRelease(player, button);
+    }
 }
 
 constexpr uintptr_t kPushButtonRva = 0x397F40;
 constexpr uintptr_t kReleaseButtonRva = 0x3981D0;
+constexpr uintptr_t kUpdateRva = 0x388D80;
 constexpr uintptr_t kUpdateJumpRva = 0x38B900;
 constexpr uintptr_t kPostCollisionRva = 0x38D580;
 constexpr unsigned char kPushButtonBytes[] = {0x40, 0x53, 0x57, 0x48, 0x83, 0xEC, 0x28};
@@ -60,7 +103,9 @@ void writeStatus(unsigned code) {
     fprintf(file, "input_hooks_active=%u\\n", gInputHooksActive.load(std::memory_order_acquire) ? 1u : 0u);
     fprintf(file, "press_events=%llu\\n", static_cast<unsigned long long>(gPressCount.load(std::memory_order_relaxed)));
     fprintf(file, "release_events=%llu\\n", static_cast<unsigned long long>(gReleaseCount.load(std::memory_order_relaxed)));
-    fprintf(file, "gameplay_correction_active=0\\n");
+    fprintf(file, "tap_extension_enabled=%u\\n", gTapExtensionEnabled.load() ? 1u : 0u);
+    fprintf(file, "extended_taps=%llu\\n", static_cast<unsigned long long>(gExtendedTaps.load()));
+    fprintf(file, "hitbox_scale_active=0\\n");
     fclose(file);
 }
 
@@ -88,6 +133,7 @@ DWORD installInputHooksImpl() {
     auto* base = reinterpret_cast<unsigned char*>(exe);
     void* push = base + kPushButtonRva;
     void* release = base + kReleaseButtonRva;
+    void* update = base + kUpdateRva;
     if (MH_CreateHook(push, reinterpret_cast<LPVOID>(&onPush),
                       reinterpret_cast<LPVOID*>(&gOriginalPush)) != MH_OK) return 3;
     if (MH_CreateHook(release, reinterpret_cast<LPVOID>(&onRelease),
@@ -95,6 +141,9 @@ DWORD installInputHooksImpl() {
         MH_RemoveHook(push);
         return 4;
     }
+    if (MH_CreateHook(update, reinterpret_cast<LPVOID>(&onUpdate),
+                      reinterpret_cast<LPVOID*>(&gOriginalUpdate)) != MH_OK) return 8;
+    if (MH_EnableHook(update) != MH_OK) return 9;
     if (MH_EnableHook(push) != MH_OK) return 5;
     if (MH_EnableHook(release) != MH_OK) {
         MH_DisableHook(push);
@@ -115,6 +164,12 @@ __declspec(dllexport) bool __cdecl SmartJumpSupportedArchitecture() noexcept {
 #else
     return false;
 #endif
+}
+__declspec(dllexport) void __cdecl SmartJumpEnableTapExtension(bool enabled) noexcept {
+    gTapExtensionEnabled.store(enabled, std::memory_order_release);
+}
+__declspec(dllexport) uint64_t __cdecl SmartJumpExtendedTaps() noexcept {
+    return gExtendedTaps.load(std::memory_order_relaxed);
 }
 __declspec(dllexport) double __cdecl SmartJumpRequestedHitboxScale() noexcept { return 0.995; }
 __declspec(dllexport) bool __cdecl SmartJumpGameplayActive() noexcept { return false; }
