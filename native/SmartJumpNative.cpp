@@ -100,6 +100,7 @@ void writeStatus(unsigned code) {
     fprintf(file, "SmartJump native hook diagnostic\\n");
     fprintf(file, "process_id=%lu\\n", GetCurrentProcessId());
     fprintf(file, "install_result=%u\\n", code);
+    fprintf(file, "result_100_means_starting=1\\n");
     fprintf(file, "input_hooks_active=%u\\n", gInputHooksActive.load(std::memory_order_acquire) ? 1u : 0u);
     fprintf(file, "press_events=%llu\\n", static_cast<unsigned long long>(gPressCount.load(std::memory_order_relaxed)));
     fprintf(file, "release_events=%llu\\n", static_cast<unsigned long long>(gReleaseCount.load(std::memory_order_relaxed)));
@@ -113,6 +114,7 @@ void writeStatus(unsigned code) {
 DWORD installInputHooksImpl();
 
 DWORD WINAPI installInputHooks(LPVOID) {
+    writeStatus(100); // Worker started, before signature checks.
     const unsigned result = installInputHooksImpl();
     writeStatus(result);
     if (result != 0) return result;
