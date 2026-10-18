@@ -60,3 +60,9 @@ Reading the uploaded executable's `.rdata` and disassembling the pointed-to code
 | 23 | `0x39C640` | `0x197B60` | Substantial distinct function, begins by writing word `0x0101` to `this+0x368`, then calls `0x197B60` |
 
 The first three apparent overrides **collapse to exactly the same implementation** as `GameObject` when direct jumps are resolved. They must be excluded from player-specific hook candidates. Slot 23, `0x39C640`, is a genuine extended override and warrants further semantic analysis. Its initial operations and virtual calls on `this+0x758` do **not** establish that it handles jump input. No hook has been validated or shipped.
+
+## Extended disassembly of PlayerObject slot 23 (RVA 0x39C640)
+
+Examined actual x64 instructions from VA `0x14039C640` through `0x14039C8AD` using `objdump -d -M intel` on the user-supplied executable. The method calls base implementation `0x197B60`, tests flags at `this+0x9C4`, `this+0xB70`, `this+0x9B9`, `this+0x9BA`, computes scaled floating-point values from `this+0x9F0`, and repeatedly invokes virtual methods on child objects at `this+0x8C0`, `+0x8C8`, `+0x8D8`, `+0x8E8`. It also performs additional floating-point transformations on `this+0x8A0` and `+0xC10` subobjects.
+
+**Assessment:** This is a real, nontrivial PlayerObject override, but its observed behavior is dominated by child-object configuration and transformations. It is **not verified as an input handler or jump-physics routine**, and patching it as Smart Jump would be unjustified. The next search must target actual input event call chains or physics state mutations rather than guessing from vtable membership.
