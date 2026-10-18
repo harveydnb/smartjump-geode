@@ -1,5 +1,11 @@
 name: Build Windows Geode mod
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'mod.json'
+      - '.github/workflows/build.yml'
   workflow_dispatch:
 permissions:
   contents: read
@@ -13,7 +19,8 @@ jobs:
         id: build
         with:
           target: Win64
-          sdk: nightly
+          sdk: given
+          bindings-ref: 7f6c2a75742856de88dad354e576dcff8a28e881
       - name: Upload Windows mod
         uses: actions/upload-artifact@v4
         with:
