@@ -1,11 +1,5 @@
 name: Build Windows Geode mod
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'src/**'
-      - 'mod.json'
-      - '.github/workflows/build.yml'
   workflow_dispatch:
 permissions:
   contents: read
