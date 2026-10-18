@@ -10,7 +10,7 @@
 
 // Standalone Windows x64 DLL; no Geode runtime dependency.
 // Verified against the user's GeometryDash.exe (SHA-256 FC5A16C292278BC2E8E078FB1D5023C2BD658322DD72712767EA70C2DD9EC6D0).
-// This build installs pass-through input hooks only; no early-click correction yet.
+// Diagnostic input hooks and a conservative timing planner; collision prediction is not yet available.
 namespace {
 using ButtonFn = void(__fastcall*)(void*, int);
 using UpdateFn = void(__fastcall*)(void*, float);
@@ -99,15 +99,16 @@ void writeStatusTo(const wchar_t* path, unsigned code) {
     if (_wfopen_s(&file, path, L"w") != 0 || !file) return;
     fprintf(file, "SmartJump native diagnostics\n");
     fprintf(file, "process_id=%lu\n", GetCurrentProcessId());
-    fprintf(file, "install_result=%u\\n", code);
-    fprintf(file, "signature_codes=11:push,12:release,13:updateJump,14:postCollision\\n");
-    fprintf(file, "input_hooks_active=%u\\n", gInputHooksActive.load() ? 1u : 0u);
+    fprintf(file, "install_result=%u\n", code);
+    fprintf(file, "signature_codes=11:push,12:release,13:updateJump,14:postCollision\n");
+    fprintf(file, "input_hooks_active=%u\n", gInputHooksActive.load() ? 1u : 0u);
     fprintf(file, "press_events=%llu\n", static_cast<unsigned long long>(gPressCount.load()));
     fprintf(file, "release_events=%llu\n", static_cast<unsigned long long>(gReleaseCount.load()));
     fprintf(file, "tap_extension_enabled=%u\n", gTapExtensionEnabled.load() ? 1u : 0u);
     fprintf(file, "extended_taps=%llu\n", static_cast<unsigned long long>(gExtendedTaps.load()));
     fprintf(file, "prediction_simulator_ready=0\\n");
-    fprintf(file, "hitbox_scale_active=0\\n");
+    fprintf(file, "prediction_policy=pass_through_until_collision_data_validated\\n");
+    fprintf(file, "hitbox_scale_active=0\n");
     HMODULE exe = GetModuleHandleW(nullptr);
     if (exe) {
         auto* address = reinterpret_cast<const unsigned char*>(
@@ -119,9 +120,9 @@ void writeStatusTo(const wchar_t* path, unsigned code) {
                 reinterpret_cast<uintptr_t>(mbi.BaseAddress) + mbi.RegionSize) {
             fprintf(file, "push_actual_bytes=");
             for (unsigned i = 0; i < 16; ++i) fprintf(file, "%02X", address[i]);
-            fprintf(file, "\\n");
+            fprintf(file, "\n");
         } else {
-            fprintf(file, "push_actual_bytes=unreadable\\n");
+            fprintf(file, "push_actual_bytes=unreadable\n");
         }
     }
     fclose(file);
@@ -212,7 +213,6 @@ DWORD installInputHooksImpl() {
     auto* base = reinterpret_cast<unsigned char*>(exe);
     void* push = base + kPushButtonRva;
     void* release = base + kReleaseButtonRva;
-    void* update = base + kUpdateRva;
     if (MH_CreateHook(push, reinterpret_cast<LPVOID>(&onPush),
                       reinterpret_cast<LPVOID*>(&gOriginalPush)) != MH_OK) return 3;
     if (MH_CreateHook(release, reinterpret_cast<LPVOID>(&onRelease),
