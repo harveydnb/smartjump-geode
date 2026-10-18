@@ -89,26 +89,38 @@ bool matches(HMODULE module, uintptr_t rva, const unsigned char (&bytes)[N]) noe
 }
 
 // A status file lets testers verify the hook without remote-process tooling.
-void writeStatus(unsigned code) {
-    wchar_t folder[MAX_PATH]{};
-    DWORD length = GetTempPathW(MAX_PATH, folder);
-    if (!length || length >= MAX_PATH) return;
-    wchar_t path[MAX_PATH]{};
-    if (swprintf_s(path, L"%sSmartJump-status-%lu.txt", folder, GetCurrentProcessId()) < 0) return;
+HMODULE gSelfModule = nullptr;
+void writeStatusTo(const wchar_t* path, unsigned code) {
     FILE* file = nullptr;
     if (_wfopen_s(&file, path, L"w") != 0 || !file) return;
-    fprintf(file, "SmartJump native hook diagnostic\\n");
-    fprintf(file, "process_id=%lu\\n", GetCurrentProcessId());
-    fprintf(file, "install_result=%u\\n", code);
-    fprintf(file, "result_100_means_starting=1\\n");
-    fprintf(file, "input_hooks_active=%u\\n", gInputHooksActive.load(std::memory_order_acquire) ? 1u : 0u);
-    fprintf(file, "press_events=%llu\\n", static_cast<unsigned long long>(gPressCount.load(std::memory_order_relaxed)));
-    fprintf(file, "release_events=%llu\\n", static_cast<unsigned long long>(gReleaseCount.load(std::memory_order_relaxed)));
-    fprintf(file, "toggle_key=F8\\n");
-    fprintf(file, "tap_extension_enabled=%u\\n", gTapExtensionEnabled.load() ? 1u : 0u);
-    fprintf(file, "extended_taps=%llu\\n", static_cast<unsigned long long>(gExtendedTaps.load()));
-    fprintf(file, "hitbox_scale_active=0\\n");
+    fprintf(file, "SmartJump native diagnostics\n");
+    fprintf(file, "process_id=%lu\n", GetCurrentProcessId());
+    fprintf(file, "install_result=%u\n", code);
+    fprintf(file, "input_hooks_active=%u\n", gInputHooksActive.load() ? 1u : 0u);
+    fprintf(file, "press_events=%llu\n", static_cast<unsigned long long>(gPressCount.load()));
+    fprintf(file, "release_events=%llu\n", static_cast<unsigned long long>(gReleaseCount.load()));
+    fprintf(file, "tap_extension_enabled=%u\n", gTapExtensionEnabled.load() ? 1u : 0u);
+    fprintf(file, "extended_taps=%llu\n", static_cast<unsigned long long>(gExtendedTaps.load()));
+    fprintf(file, "hitbox_scale_active=0\n");
     fclose(file);
+}
+void writeStatus(unsigned code) {
+    wchar_t folder[MAX_PATH]{};
+    if (GetTempPathW(MAX_PATH, folder) > 0) {
+        wchar_t path[MAX_PATH]{};
+        if (swprintf_s(path, L"%sSmartJump-status-%lu.txt", folder, GetCurrentProcessId()) >= 0)
+            writeStatusTo(path, code);
+    }
+    wchar_t modulePath[MAX_PATH]{};
+    if (gSelfModule && GetModuleFileNameW(gSelfModule, modulePath, MAX_PATH)) {
+        wchar_t* separator = wcsrchr(modulePath, L'\\');
+        if (separator) {
+            *(separator + 1) = L'\0';
+            wchar_t path[MAX_PATH]{};
+            if (swprintf_s(path, L"%sSmartJump-status-%lu.txt", modulePath, GetCurrentProcessId()) >= 0)
+                writeStatusTo(path, code);
+        }
+    }
 }
 
 DWORD installInputHooksImpl();
@@ -206,6 +218,7 @@ __declspec(dllexport) bool __cdecl SmartJumpKnownFunctionSignaturesMatch() noexc
 }
 BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {
     if (reason == DLL_PROCESS_ATTACH) {
+        gSelfModule = module;
         DisableThreadLibraryCalls(module);
         HANDLE thread = CreateThread(nullptr, 0, installInputHooks, nullptr, 0, nullptr);
         if (thread) CloseHandle(thread);
