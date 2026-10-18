@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <cstring>
 #include <atomic>
+#include <cstdio>
 #include <MinHook.h>
 
 // Standalone Windows x64 DLL; no Geode runtime dependency.
@@ -44,7 +45,38 @@ bool matches(HMODULE module, uintptr_t rva, const unsigned char (&bytes)[N]) noe
 }
 }
 
+// A status file lets testers verify the hook without remote-process tooling.
+void writeStatus(unsigned code) {
+    wchar_t folder[MAX_PATH]{};
+    DWORD length = GetTempPathW(MAX_PATH, folder);
+    if (!length || length >= MAX_PATH) return;
+    wchar_t path[MAX_PATH]{};
+    if (swprintf_s(path, L"%sSmartJump-status-%lu.txt", folder, GetCurrentProcessId()) < 0) return;
+    FILE* file = nullptr;
+    if (_wfopen_s(&file, path, L"w") != 0 || !file) return;
+    fprintf(file, "SmartJump native hook diagnostic\\n");
+    fprintf(file, "process_id=%lu\\n", GetCurrentProcessId());
+    fprintf(file, "install_result=%u\\n", code);
+    fprintf(file, "input_hooks_active=%u\\n", gInputHooksActive.load(std::memory_order_acquire) ? 1u : 0u);
+    fprintf(file, "press_events=%llu\\n", static_cast<unsigned long long>(gPressCount.load(std::memory_order_relaxed)));
+    fprintf(file, "release_events=%llu\\n", static_cast<unsigned long long>(gReleaseCount.load(std::memory_order_relaxed)));
+    fprintf(file, "gameplay_correction_active=0\\n");
+    fclose(file);
+}
+
+DWORD installInputHooksImpl();
+
 DWORD WINAPI installInputHooks(LPVOID) {
+    const unsigned result = installInputHooksImpl();
+    writeStatus(result);
+    if (result != 0) return result;
+    for (;;) {
+        Sleep(1000);
+        writeStatus(0);
+    }
+}
+
+DWORD installInputHooksImpl() {
 #if defined(_M_X64)
     HMODULE exe = GetModuleHandleW(nullptr);
     if (!matches(exe, kPushButtonRva, kPushButtonBytes) ||
