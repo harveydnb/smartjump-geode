@@ -106,8 +106,8 @@ void writeStatusTo(const wchar_t* path, unsigned code) {
     fprintf(file, "release_events=%llu\n", static_cast<unsigned long long>(gReleaseCount.load()));
     fprintf(file, "tap_extension_enabled=%u\n", gTapExtensionEnabled.load() ? 1u : 0u);
     fprintf(file, "extended_taps=%llu\n", static_cast<unsigned long long>(gExtendedTaps.load()));
-    fprintf(file, "prediction_simulator_ready=0\\n");
-    fprintf(file, "prediction_policy=pass_through_until_collision_data_validated\\n");
+    fprintf(file, "prediction_simulator_ready=0\n");
+    fprintf(file, "prediction_policy=pass_through_until_collision_data_validated\n");
     fprintf(file, "hitbox_scale_active=0\n");
     HMODULE exe = GetModuleHandleW(nullptr);
     if (exe) {
