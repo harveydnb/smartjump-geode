@@ -20,3 +20,7 @@ enable_testing()
 add_executable(SmartJumpTimingTests TimingPlannerTests.cpp)
 target_compile_features(SmartJumpTimingTests PRIVATE cxx_std_20)
 add_test(NAME SmartJumpTimingTests COMMAND SmartJumpTimingTests)
+
+add_executable(SmartJumpCollisionTests CollisionSimulatorTests.cpp)
+target_compile_features(SmartJumpCollisionTests PRIVATE cxx_std_20)
+add_test(NAME SmartJumpCollisionTests COMMAND SmartJumpCollisionTests)
