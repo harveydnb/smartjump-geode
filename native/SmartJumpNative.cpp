@@ -95,8 +95,9 @@ void writeStatusTo(const wchar_t* path, unsigned code) {
     if (_wfopen_s(&file, path, L"w") != 0 || !file) return;
     fprintf(file, "SmartJump native diagnostics\n");
     fprintf(file, "process_id=%lu\n", GetCurrentProcessId());
-    fprintf(file, "install_result=%u\n", code);
-    fprintf(file, "input_hooks_active=%u\n", gInputHooksActive.load() ? 1u : 0u);
+    fprintf(file, "install_result=%u\\n", code);
+    fprintf(file, "signature_codes=11:push,12:release,13:updateJump,14:postCollision\\n");
+    fprintf(file, "input_hooks_active=%u\\n", gInputHooksActive.load() ? 1u : 0u);
     fprintf(file, "press_events=%llu\n", static_cast<unsigned long long>(gPressCount.load()));
     fprintf(file, "release_events=%llu\n", static_cast<unsigned long long>(gReleaseCount.load()));
     fprintf(file, "tap_extension_enabled=%u\n", gTapExtensionEnabled.load() ? 1u : 0u);
@@ -151,10 +152,11 @@ DWORD WINAPI installInputHooks(LPVOID) {
 DWORD installInputHooksImpl() {
 #if defined(_M_X64)
     HMODULE exe = GetModuleHandleW(nullptr);
-    if (!matches(exe, kPushButtonRva, kPushButtonBytes) ||
-        !matches(exe, kReleaseButtonRva, kReleaseButtonBytes) ||
-        !matches(exe, kUpdateJumpRva, kUpdateJumpBytes) ||
-        !matches(exe, kPostCollisionRva, kPostCollisionBytes)) return 1;
+    // Distinct return codes identify the mismatched entry point.
+    if (!matches(exe, kPushButtonRva, kPushButtonBytes)) return 11;
+    if (!matches(exe, kReleaseButtonRva, kReleaseButtonBytes)) return 12;
+    if (!matches(exe, kUpdateJumpRva, kUpdateJumpBytes)) return 13;
+    if (!matches(exe, kPostCollisionRva, kPostCollisionBytes)) return 14;
 
     if (MH_Initialize() != MH_OK) return 2;
     auto* base = reinterpret_cast<unsigned char*>(exe);
