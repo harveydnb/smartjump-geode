@@ -26,6 +26,7 @@ internal sealed class LauncherForm : Form
 {
     private readonly Label status = new();
     private readonly Label saveStatus = new();
+    private readonly Label gameDetails = new();
     private readonly CheckBox jumpPreference = new();
     private readonly CheckBox hitboxPreference = new();
     private readonly System.Windows.Forms.Timer timer = new() { Interval = 2000 };
@@ -57,15 +58,20 @@ internal sealed class LauncherForm : Form
 
         Controls.Add(new Label
         {
-            Text = "Target: Geometry Dash 2.2081 (version not verified)",
+            Text = "Target: Geometry Dash 2.2081 (checking executable)",
             AutoSize = true,
             Location = new Point(20, 98)
         });
 
+        gameDetails.AutoSize = true;
+        gameDetails.Location = new Point(20, 116);
+        gameDetails.Font = new Font("Segoe UI", 8);
+        Controls.Add(gameDetails);
+
         var group = new GroupBox
         {
             Text = "Saved preferences — NOT active in game",
-            Location = new Point(20, 126),
+            Location = new Point(20, 142),
             Size = new Size(480, 130)
         };
         Controls.Add(group);
@@ -83,14 +89,14 @@ internal sealed class LauncherForm : Form
         var save = new Button
         {
             Text = "Save preferences",
-            Location = new Point(20, 269),
+            Location = new Point(20, 285),
             Size = new Size(145, 32)
         };
         save.Click += (_, _) => SaveSettings();
         Controls.Add(save);
 
         saveStatus.AutoSize = true;
-        saveStatus.Location = new Point(178, 277);
+        saveStatus.Location = new Point(178, 293);
         Controls.Add(saveStatus);
 
         Controls.Add(new Label
@@ -160,12 +166,36 @@ internal sealed class LauncherForm : Form
             bool running = process != null;
             status.Text = running ? "Geometry Dash: RUNNING" : "Geometry Dash: NOT DETECTED";
             status.ForeColor = running ? Color.DarkGreen : Color.DarkOrange;
+            gameDetails.Text = running ? GetExecutableDetails(process!) : "Executable details: waiting for game";
         }
         catch (Exception)
         {
             status.Text = "Geometry Dash: Unable to check process";
             status.ForeColor = Color.DarkRed;
+            gameDetails.Text = "Executable details unavailable";
         }
+    }
+
+    private static string GetExecutableDetails(Process process)
+    {
+        try
+        {
+            string? path = process.MainModule?.FileName;
+            if (string.IsNullOrWhiteSpace(path)) return "Executable details: access unavailable";
+            string version = FileVersionInfo.GetVersionInfo(path).FileVersion ?? "unknown";
+            using var stream = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var reader = new BinaryReader(stream);
+            if (reader.ReadUInt16() != 0x5A4D) return $"File version: {version} | Not a PE executable";
+            stream.Position = 0x3C;
+            int peOffset = reader.ReadInt32();
+            if (peOffset < 0 || peOffset > stream.Length - 6) return $"File version: {version} | Architecture unknown";
+            stream.Position = peOffset;
+            if (reader.ReadUInt32() != 0x00004550) return $"File version: {version} | Architecture unknown";
+            ushort machine = reader.ReadUInt16();
+            string architecture = machine switch { 0x8664 => "64-bit (x64)", 0x014c => "32-bit (x86)", 0xAA64 => "ARM64", _ => $"unknown (0x{machine:X4})" };
+            return $"Executable: {architecture} | File version: {version}";
+        }
+        catch (Exception) { return "Executable details: access unavailable"; }
     }
 
     protected override void OnFormClosed(FormClosedEventArgs e)
