@@ -1,3 +1,4 @@
+#include "TimingPlanner.hpp"
 #include <windows.h>
 #include <cstdint>
 #include <cstring>
@@ -58,7 +59,10 @@ void __fastcall onPush(void* player, int button) {
 }
 void __fastcall onRelease(void* player, int button) {
     gReleaseCount.fetch_add(1, std::memory_order_relaxed);
-    if (gTapExtensionEnabled.load(std::memory_order_acquire)) {
+    // The predictive planner is connected to the input path, but until a
+    // validated collision simulator supplies candidates, never delay input.
+    const auto decision = smartjump::chooseTiming(std::span<const smartjump::Candidate>{});
+    if (gTapExtensionEnabled.load(std::memory_order_acquire) && decision.shouldDelay) {
         std::lock_guard<std::mutex> lock(gPendingMutex);
         gPending[player] = {button, GetTickCount64() + 45};
         gExtendedTaps.fetch_add(1, std::memory_order_relaxed);
@@ -102,6 +106,7 @@ void writeStatusTo(const wchar_t* path, unsigned code) {
     fprintf(file, "release_events=%llu\n", static_cast<unsigned long long>(gReleaseCount.load()));
     fprintf(file, "tap_extension_enabled=%u\n", gTapExtensionEnabled.load() ? 1u : 0u);
     fprintf(file, "extended_taps=%llu\n", static_cast<unsigned long long>(gExtendedTaps.load()));
+    fprintf(file, "prediction_simulator_ready=0\\n");
     fprintf(file, "hitbox_scale_active=0\\n");
     HMODULE exe = GetModuleHandleW(nullptr);
     if (exe) {
@@ -215,13 +220,9 @@ DWORD installInputHooksImpl() {
         MH_RemoveHook(push);
         return 4;
     }
-    if (MH_CreateHook(update, reinterpret_cast<LPVOID>(&onUpdate),
-                      reinterpret_cast<LPVOID*>(&gOriginalUpdate)) != MH_OK) return 8;
-    if (MH_EnableHook(update) != MH_OK) return 9;
     if (MH_EnableHook(push) != MH_OK) return 5;
     if (MH_EnableHook(release) != MH_OK) {
         MH_DisableHook(push);
-        MH_DisableHook(update);
         return 6;
     }
     gInputHooksActive.store(true, std::memory_order_release);
