@@ -16,6 +16,8 @@ jobs:
         run: cmake -S native -B native/build -A x64
       - name: Build Release
         run: cmake --build native/build --config Release
+      - name: Test timing planner
+        run: ctest --test-dir native/build -C Release --output-on-failure
       - uses: actions/upload-artifact@v4
         with:
           name: SmartJumpNative-Windows-x64-foundation
