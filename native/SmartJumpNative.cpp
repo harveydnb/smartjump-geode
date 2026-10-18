@@ -1,11 +1,29 @@
 #include <windows.h>
 #include <cstdint>
 #include <cstring>
+#include <atomic>
+#include <MinHook.h>
 
 // Standalone Windows x64 DLL; no Geode runtime dependency.
 // Verified against the user's GeometryDash.exe (SHA-256 FC5A16C292278BC2E8E078FB1D5023C2BD658322DD72712767EA70C2DD9EC6D0).
-// This build only validates function entry points. It does not install hooks.
+// This build installs pass-through input hooks only; no early-click correction yet.
 namespace {
+using ButtonFn = void(__fastcall*)(void*, int);
+std::atomic<bool> gInputHooksActive{false};
+std::atomic<uint64_t> gPressCount{0};
+std::atomic<uint64_t> gReleaseCount{0};
+ButtonFn gOriginalPush = nullptr;
+ButtonFn gOriginalRelease = nullptr;
+
+void __fastcall onPush(void* player, int button) {
+    gPressCount.fetch_add(1, std::memory_order_relaxed);
+    if (gOriginalPush) gOriginalPush(player, button);
+}
+void __fastcall onRelease(void* player, int button) {
+    gReleaseCount.fetch_add(1, std::memory_order_relaxed);
+    if (gOriginalRelease) gOriginalRelease(player, button);
+}
+
 constexpr uintptr_t kPushButtonRva = 0x397F40;
 constexpr uintptr_t kReleaseButtonRva = 0x3981D0;
 constexpr uintptr_t kUpdateJumpRva = 0x38B900;
@@ -24,6 +42,37 @@ bool matches(HMODULE module, uintptr_t rva, const unsigned char (&bytes)[N]) noe
     if (mbi.State != MEM_COMMIT || (mbi.Protect & (PAGE_GUARD | PAGE_NOACCESS))) return false;
     return std::memcmp(address, bytes, N) == 0;
 }
+}
+
+DWORD WINAPI installInputHooks(LPVOID) {
+#if defined(_M_X64)
+    HMODULE exe = GetModuleHandleW(nullptr);
+    if (!matches(exe, kPushButtonRva, kPushButtonBytes) ||
+        !matches(exe, kReleaseButtonRva, kReleaseButtonBytes) ||
+        !matches(exe, kUpdateJumpRva, kUpdateJumpBytes) ||
+        !matches(exe, kPostCollisionRva, kPostCollisionBytes)) return 1;
+
+    if (MH_Initialize() != MH_OK) return 2;
+    auto* base = reinterpret_cast<unsigned char*>(exe);
+    void* push = base + kPushButtonRva;
+    void* release = base + kReleaseButtonRva;
+    if (MH_CreateHook(push, reinterpret_cast<LPVOID>(&onPush),
+                      reinterpret_cast<LPVOID*>(&gOriginalPush)) != MH_OK) return 3;
+    if (MH_CreateHook(release, reinterpret_cast<LPVOID>(&onRelease),
+                      reinterpret_cast<LPVOID*>(&gOriginalRelease)) != MH_OK) {
+        MH_RemoveHook(push);
+        return 4;
+    }
+    if (MH_EnableHook(push) != MH_OK) return 5;
+    if (MH_EnableHook(release) != MH_OK) {
+        MH_DisableHook(push);
+        return 6;
+    }
+    gInputHooksActive.store(true, std::memory_order_release);
+    return 0;
+#else
+    return 7;
+#endif
 }
 
 extern "C" {
@@ -52,4 +101,13 @@ __declspec(dllexport) bool __cdecl SmartJumpKnownFunctionSignaturesMatch() noexc
 #endif
 }
 }
-BOOL APIENTRY DllMain(HMODULE, DWORD, LPVOID) { return TRUE; }
+BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID) {
+    if (reason == DLL_PROCESS_ATTACH) {
+        DisableThreadLibraryCalls(module);
+        HANDLE thread = CreateThread(nullptr, 0, installInputHooks, nullptr, 0, nullptr);
+        if (thread) CloseHandle(thread);
+    }
+    // Deliberately no MH_Uninitialize during process teardown / loader lock.
+    // Do not manually unload this DLL while the game is running.
+    return TRUE;
+}
