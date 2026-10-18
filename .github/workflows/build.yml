@@ -15,6 +15,7 @@ jobs:
         id: build
         with:
           target: Win64
+          sdk: latest
       - name: Upload Windows mod
         uses: actions/upload-artifact@v4
         with:
