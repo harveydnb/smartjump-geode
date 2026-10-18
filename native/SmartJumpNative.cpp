@@ -1,4 +1,5 @@
 #include "TimingPlanner.hpp"
+#include "CollisionSimulator.hpp"
 #include <windows.h>
 #include <cstdint>
 #include <cstring>
@@ -106,7 +107,8 @@ void writeStatusTo(const wchar_t* path, unsigned code) {
     fprintf(file, "release_events=%llu\n", static_cast<unsigned long long>(gReleaseCount.load()));
     fprintf(file, "tap_extension_enabled=%u\n", gTapExtensionEnabled.load() ? 1u : 0u);
     fprintf(file, "extended_taps=%llu\n", static_cast<unsigned long long>(gExtendedTaps.load()));
-    fprintf(file, "prediction_simulator_ready=0\n");
+    fprintf(file, "prediction_simulator_compiled=1\n");
+    fprintf(file, "prediction_game_adapter_ready=0\n");
     fprintf(file, "prediction_policy=pass_through_until_collision_data_validated\n");
     fprintf(file, "hitbox_scale_active=0\n");
     HMODULE exe = GetModuleHandleW(nullptr);
@@ -233,6 +235,31 @@ DWORD installInputHooksImpl() {
 }
 
 extern "C" {
+// Test-only API: caller supplies geometry. Does not access live game state.
+struct SmartJumpRect { double left, bottom, right, top; };
+__declspec(dllexport) int __cdecl SmartJumpSimulateCandidate(
+    double x, double y, double vx, double vy,
+    double halfWidth, double halfHeight, int mode,
+    bool grounded, bool gravityFlipped,
+    const SmartJumpRect* hazards, unsigned hazardCount,
+    double delaySeconds, double horizonSeconds) noexcept {
+    if (mode < 0 || mode > 6 || hazardCount > 4096 ||
+        (hazardCount && !hazards)) return -1;
+    try {
+        std::vector<smartjump::Rect> obstacles;
+        obstacles.reserve(hazardCount);
+        for (unsigned i=0;i<hazardCount;++i) {
+            const auto& r = hazards[i];
+            obstacles.push_back({r.left,r.bottom,r.right,r.top});
+        }
+        smartjump::State state{{x,y},{vx,vy},halfWidth,halfHeight,
+            static_cast<smartjump::Mode>(mode),grounded,gravityFlipped};
+        smartjump::World world{obstacles,{}};
+        auto result = smartjump::simulate(state,world,delaySeconds,horizonSeconds);
+        return !result.valid ? -1 : (result.survives ? 1 : 0);
+    } catch (...) { return -1; }
+}
+
 __declspec(dllexport) uint32_t __cdecl SmartJumpApiVersion() noexcept { return 2; }
 __declspec(dllexport) bool __cdecl SmartJumpSupportedArchitecture() noexcept {
 #if defined(_M_X64)
