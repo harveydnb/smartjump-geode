@@ -1,0 +1,22 @@
+name: Build standalone Windows native component
+on:
+  push:
+    paths:
+      - 'native/**'
+      - '.github/workflows/build-native.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows-x64:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure x64
+        run: cmake -S native -B native/build -A x64
+      - name: Build Release
+        run: cmake --build native/build --config Release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SmartJumpNative-Windows-x64-foundation
+          path: native/build/Release/SmartJumpNative.dll
