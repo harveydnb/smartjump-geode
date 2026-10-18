@@ -25,3 +25,11 @@ Next: analyze disassembly and call sites for the candidate code functions; valid
 Using `objdump -d -M intel` on the exact PE64 file, the first class-specific entries were examined. For `PlayerObject`, RVA `0x385B30` saves `this` from RCX, calls RVA `0x3864A0`, tests bit 0 of EDX, and conditionally calls RVA `0x4D07AC` with allocation size `0xC48`. This is consistent with an MSVC scalar deleting destructor, **not a jump handler**. Thus treating the first class-specific vtable slot as a gameplay hook would be incorrect.
 
 This is a verified negative result. Next work should trace non-destructor entries and cross-references from input and collision call sites; no safe patch address has been established.
+
+## Further investigation: PlayerObject vtable slot 4 (zero-indexed)
+
+Validated directly with `objdump -d -M intel --start-address=0x140388d80 --stop-address=0x140388e10 GeometryDash.exe` on the exact binary. The entry at PlayerObject vtable `0x5C8270 + 4*8` points to **RVA `0x388D80`**.
+
+Unlike the deleting destructor in slot 1, this function has a substantial stack frame (`sub rsp, 0x110`), preserves floating-point registers, receives a float-like argument in XMM1 (`movaps xmm8, xmm1` and `cvtss2sd xmm14, xmm8`), multiplies it by a constant (`mulss xmm8, xmm6`), and reads a double from `[rcx+0x808]`. These observations make it a **plausible per-frame player update / physics candidate**, not proof of a jump-input or collision handler. The class and vtable slot are independently verified from the uploaded executable; no old-version offsets were used.
+
+**Still needed:** trace callers and downstream calls, determine exact signature and effect, and establish testable invariants before writing any hook. Do not patch this RVA on the strength of these observations alone.
