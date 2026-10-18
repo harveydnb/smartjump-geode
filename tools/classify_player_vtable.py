@@ -24,7 +24,7 @@ def raw(rva):
 def u64(data, rva):
     return struct.unpack_from("<Q", data, raw(rva))[0]
 def resolved(data, rva):
-    # Follow x86-64 E9 rel32 thunks, up to three jumps.
+    # Follow E9 direct thunks; mark FF 25 RIP-relative import thunks separately.
     hops = []
     for _ in range(3):
         p = raw(rva)
@@ -32,7 +32,7 @@ def resolved(data, rva):
             break
         disp = struct.unpack_from("<i", data, p + 1)[0]
         target = rva + 5 + disp
-        hops.append(target)
+        hops.append(("direct_jump", target))
         rva = target
     return rva, hops
 def main(path):
@@ -56,7 +56,7 @@ def main(path):
         other = slots["GameObject"]
         if i < len(other) and final == other[i][1]:
             continue
-        print(f"slot={i:3d} entry=0x{rva:06X} target=0x{final:06X} thunk={bool(hops)}")
+        print(f"slot={i:3d} entry=0x{rva:06X} target=0x{final:06X} thunks={hops}")
     print("\nNot a confirmed input or collision hook. Validate function behavior before patching.")
 if __name__ == "__main__":
     if len(sys.argv) != 2:
