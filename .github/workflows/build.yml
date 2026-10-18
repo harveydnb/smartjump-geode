@@ -16,6 +16,7 @@ jobs:
         with:
           target: Win64
           sdk: latest
+          bindings-ref: 7f6c2a75742856de88dad354e576dcff8a28e881
       - name: Upload Windows mod
         uses: actions/upload-artifact@v4
         with:
