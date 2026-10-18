@@ -103,6 +103,7 @@ void writeStatus(unsigned code) {
     fprintf(file, "input_hooks_active=%u\\n", gInputHooksActive.load(std::memory_order_acquire) ? 1u : 0u);
     fprintf(file, "press_events=%llu\\n", static_cast<unsigned long long>(gPressCount.load(std::memory_order_relaxed)));
     fprintf(file, "release_events=%llu\\n", static_cast<unsigned long long>(gReleaseCount.load(std::memory_order_relaxed)));
+    fprintf(file, "toggle_key=F8\\n");
     fprintf(file, "tap_extension_enabled=%u\\n", gTapExtensionEnabled.load() ? 1u : 0u);
     fprintf(file, "extended_taps=%llu\\n", static_cast<unsigned long long>(gExtendedTaps.load()));
     fprintf(file, "hitbox_scale_active=0\\n");
@@ -115,9 +116,21 @@ DWORD WINAPI installInputHooks(LPVOID) {
     const unsigned result = installInputHooksImpl();
     writeStatus(result);
     if (result != 0) return result;
+    bool previousF8 = false;
     for (;;) {
-        Sleep(1000);
+        // Toggle only on the F8 key's down transition while GD has focus.
+        bool focused = GetForegroundWindow() != nullptr &&
+            GetWindowThreadProcessId(GetForegroundWindow(), nullptr) != 0;
+        DWORD foregroundPid = 0;
+        if (focused) GetWindowThreadProcessId(GetForegroundWindow(), &foregroundPid);
+        const bool f8 = (GetAsyncKeyState(VK_F8) & 0x8000) != 0;
+        if (foregroundPid == GetCurrentProcessId() && f8 && !previousF8) {
+            const bool old = gTapExtensionEnabled.load(std::memory_order_acquire);
+            gTapExtensionEnabled.store(!old, std::memory_order_release);
+        }
+        previousF8 = f8;
         writeStatus(0);
+        Sleep(100);
     }
 }
 
@@ -147,6 +160,7 @@ DWORD installInputHooksImpl() {
     if (MH_EnableHook(push) != MH_OK) return 5;
     if (MH_EnableHook(release) != MH_OK) {
         MH_DisableHook(push);
+        MH_DisableHook(update);
         return 6;
     }
     gInputHooksActive.store(true, std::memory_order_release);
