@@ -1,0 +1,11 @@
+{
+  "geode": "$GEODE_VERSION",
+  "gd": {
+    "win": "2.2081"
+  },
+  "id": "harveydnb.smartjump",
+  "name": "Smart Jump Prototype",
+  "version": "v0.1.0",
+  "developer": "harveydnb",
+  "description": "Windows build and installation test. Gameplay features are not yet implemented."
+}
