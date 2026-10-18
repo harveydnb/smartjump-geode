@@ -102,7 +102,23 @@ void writeStatusTo(const wchar_t* path, unsigned code) {
     fprintf(file, "release_events=%llu\n", static_cast<unsigned long long>(gReleaseCount.load()));
     fprintf(file, "tap_extension_enabled=%u\n", gTapExtensionEnabled.load() ? 1u : 0u);
     fprintf(file, "extended_taps=%llu\n", static_cast<unsigned long long>(gExtendedTaps.load()));
-    fprintf(file, "hitbox_scale_active=0\n");
+    fprintf(file, "hitbox_scale_active=0\\n");
+    HMODULE exe = GetModuleHandleW(nullptr);
+    if (exe) {
+        auto* address = reinterpret_cast<const unsigned char*>(
+            reinterpret_cast<uintptr_t>(exe) + 0x397F40);
+        MEMORY_BASIC_INFORMATION mbi{};
+        if (VirtualQuery(address, &mbi, sizeof(mbi)) == sizeof(mbi) &&
+            mbi.State == MEM_COMMIT && !(mbi.Protect & (PAGE_GUARD | PAGE_NOACCESS)) &&
+            reinterpret_cast<uintptr_t>(address) + 16 <=
+                reinterpret_cast<uintptr_t>(mbi.BaseAddress) + mbi.RegionSize) {
+            fprintf(file, "push_actual_bytes=");
+            for (unsigned i = 0; i < 16; ++i) fprintf(file, "%02X", address[i]);
+            fprintf(file, "\\n");
+        } else {
+            fprintf(file, "push_actual_bytes=unreadable\\n");
+        }
+    }
     fclose(file);
 }
 void writeStatus(unsigned code) {
