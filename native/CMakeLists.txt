@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.20)
+project(SmartJumpNative LANGUAGES CXX)
+add_library(SmartJumpNative SHARED SmartJumpNative.cpp)
+target_compile_features(SmartJumpNative PRIVATE cxx_std_20)
+target_compile_definitions(SmartJumpNative PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+set_target_properties(SmartJumpNative PROPERTIES OUTPUT_NAME "SmartJumpNative")
